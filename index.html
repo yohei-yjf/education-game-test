@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>🚦 しんごうゲーム</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚦</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header id="top">
+      <div id="stages"></div>
+      <button id="sound" class="icon-btn" aria-label="sound">🔊</button>
+    </header>
+
+    <div id="goals"></div>
+
+    <div id="stage-wrap">
+      <canvas id="view" width="600" height="600"></canvas>
+      <div id="timer"><div id="timer-fill"></div></div>
+      <div id="overlay" class="hidden">
+        <div id="result-emoji"></div>
+        <div id="result-sub"></div>
+        <button id="next" class="big-btn">▶</button>
+      </div>
+      <canvas id="fx" width="600" height="600"></canvas>
+    </div>
+
+    <footer id="controls">
+      <div id="toggles"></div>
+      <button id="play" class="big-btn play" aria-label="play">▶</button>
+    </footer>
+  </div>
+
+  <script src="sim.js"></script>
+  <script src="stages.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
