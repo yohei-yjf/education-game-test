@@ -99,10 +99,12 @@
   // ---------- UI: goals ----------
   function renderGoals() {
     const el = $('goals'); el.innerHTML = '';
-    const icons = { ns: '🚗⬍', ew: '🚗⬌', safe: '🚗🚗', turn: '🚗↲', flow: '🚗🚗🚗' };
+    const chip = axis => `<svg class="chip" viewBox="0 0 64 64">${miniMap(axis)}</svg>`;
+    const icons = { ns: chip('ns') + '🚗', ew: chip('ew') + '🚗', safe: '🚗🚗', turn: '🚗↲', flow: '🚗🚗🚗' };
     stage.goals.forEach(g => {
       const d = document.createElement('div');
       d.className = 'goal' + (goalsDone[g] ? ' done' : '');
+      if (g === 'ns' || g === 'ew') d.style.borderColor = AXIS[g].color;
       d.innerHTML = `<span>${icons[g]}</span><span class="chk">⭐</span>`;
       el.appendChild(d);
     });
@@ -118,12 +120,13 @@
            `<rect x="0" y="24" width="64" height="16" fill="${axis === 'ew' ? a.color : '#cfc9bb'}" opacity="${axis === 'ew' ? .55 : .5}"/>`;
   }
   function lightSVG(bulbs, active, arrowOn, vertical, axis) {
-    // bulbs: array of 'R','Y','G','A'
+    // bulbs: array of 'G','Y','R','A' in driver order (green .. red, arrow). Drawn like the canvas heads:
+    // the vertical (E-W) head is read top-to-bottom, the horizontal (N-S) head right-to-left.
     const n = bulbs.length, w = vertical ? 26 : 16 + n * 16, h = vertical ? 16 + n * 16 : 26;
     const col = { R: '#ff3b30', Y: '#ffcc00', G: '#34c759', A: '#34c759' };
     let s = `<svg viewBox="0 0 64 64">${miniMap(axis)}<rect x="${(64 - w) / 2}" y="${(64 - h) / 2}" width="${w}" height="${h}" rx="7" fill="#333"/>`;
     bulbs.forEach((b, i) => {
-      const cx = vertical ? 32 : (64 - w) / 2 + 8 + 8 + i * 16, cy = vertical ? (64 - h) / 2 + 16 + i * 16 : 32;
+      const cx = vertical ? 32 : (64 + w) / 2 - 8 - 8 - i * 16, cy = vertical ? (64 - h) / 2 + 16 + i * 16 : 32;
       const on = b === 'A' ? arrowOn : active === b;
       if (b === 'A') {
         s += `<circle cx="${cx}" cy="${cy}" r="6" fill="#111"/>` +
@@ -148,15 +151,15 @@
   }
   function toggleIcon(kind) {
     switch (kind) {
-      case 'nsLight': return lightSVG(['R', 'G'], cfg.lights.ns, false, true, 'ns');
-      case 'ewLight': return lightSVG(['R', 'G'], cfg.lights.ew, false, false, 'ew');
+      case 'nsLight': return lightSVG(['G', 'R'], cfg.lights.ns, false, false, 'ns');
+      case 'ewLight': return lightSVG(['G', 'R'], cfg.lights.ew, false, true, 'ew');
       case 'yellow': return cfg.yellow ? lightSVG(['G', 'Y', 'R'], 'Y', false, false) : lightSVG(['G', 'R'], '', false, false);
       case 'arrow': return cfg.arrow ? lightSVG(['G', 'Y', 'R', 'A'], '', true, false, 'ns') : lightSVG(['G', 'Y', 'R'], '', false, false, 'ns');
       case 'lane': return laneSVG(cfg.turnLane);
     }
     return '';
   }
-  const LBL = { nsLight: '⬍', ewLight: '⬌', yellow: '🟡', arrow: '↲', lane: '🛣️' };
+  const LBL = { nsLight: '', ewLight: '', yellow: '🟡', arrow: '↲', lane: '🛣️' };
   function renderToggles() {
     const el = $('toggles'); el.innerHTML = '';
     stage.toggles.forEach(kind => {
@@ -164,8 +167,8 @@
       b.className = 'toggle'; b.dataset.kind = kind;
       const axis = TOGGLE_AXIS[kind];
       if (axis) { b.dataset.axis = axis; b.style.borderColor = AXIS[axis].color; }
-      const lblStyle = axis ? ` style="background:${AXIS[axis].color};color:#fff;border-color:${AXIS[axis].color}"` : '';
-      b.innerHTML = toggleIcon(kind) + `<span class="lbl"${lblStyle}>${LBL[kind]}</span><span class="hand">👆</span>`;
+      const lbl = LBL[kind] ? `<span class="lbl">${LBL[kind]}</span>` : '';
+      b.innerHTML = toggleIcon(kind) + lbl + `<span class="hand">👆</span>`;
       b.addEventListener('click', () => onToggle(kind, b));
       el.appendChild(b);
     });
@@ -411,35 +414,60 @@
     c.moveTo(x - 14, y + 32); c.lineTo(x - 22, y + 40); c.lineTo(x - 14, y + 48); c.stroke();
   }
 
-  function drawLightHead(c, x, y, bulbs, active, arrowOn, arrowYellow, axis) {
-    const w = 16 + bulbs.length * 26, h = 34, A = AXIS[axis];
+  // One signal head, drawn as the approaching driver would see it: bulbs run left-to-right
+  // (green .. red, then the arrow) in the driver's own left/right, and the head sits on a
+  // pole at the far corner of the crossing, facing the oncoming traffic.
+  // heading: 0 = east, PI/2 = south, PI = west, -PI/2 = north
+  function drawLightHead(c, cx, cy, heading, poleX, poleY, bulbs, active, arrowOn, arrowYellow, axis) {
+    const n = bulbs.length, w = 16 + n * 26, h = 34, A = AXIS[axis];
     const hot = pulse.t > 0 && pulse.axis === axis;
-    // coloured frame matching the button and the road
+    // arm from the pole to the head
+    c.strokeStyle = '#444'; c.lineWidth = 5; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(poleX, poleY); c.lineTo(cx, cy); c.stroke();
+    c.fillStyle = '#333'; c.beginPath(); c.arc(poleX, poleY, 6, 0, Math.PI * 2); c.fill();
+    c.save();
+    c.translate(cx, cy);
+    c.rotate(heading + Math.PI / 2);      // local +x = the driver's right-hand side
+    const x = -w / 2, y = -h / 2;
     c.fillStyle = A.color; roundRect(c, x - 5, y - 5, w + 10, h + 10, 12); c.fill();
     if (hot) { c.strokeStyle = `rgba(${A.rgb},${pulse.t})`; c.lineWidth = 6 + 10 * pulse.t; roundRect(c, x - 5, y - 5, w + 10, h + 10, 12); c.stroke(); }
     c.fillStyle = '#2b2b2b'; roundRect(c, x, y, w, h, 8); c.fill();
     c.strokeStyle = '#111'; c.lineWidth = 2; c.stroke();
     const col = { R: '#ff3b30', Y: '#ffcc00', G: '#34c759' };
     bulbs.forEach((b, i) => {
-      const cx = x + 8 + 13 + i * 26, cy = y + h / 2;
+      const bx = x + 8 + 13 + i * 26, by = 0;
       if (b === 'A') {
-        c.fillStyle = '#111'; c.beginPath(); c.arc(cx, cy, 10, 0, Math.PI * 2); c.fill();
+        c.fillStyle = '#111'; c.beginPath(); c.arc(bx, by, 10, 0, Math.PI * 2); c.fill();
         c.strokeStyle = arrowOn ? '#34c759' : arrowYellow ? '#ffcc00' : '#28402c'; c.lineWidth = 3; c.lineCap = 'round';
-        c.beginPath(); c.moveTo(cx + 6, cy); c.lineTo(cx - 6, cy); c.moveTo(cx - 2, cy - 4); c.lineTo(cx - 6, cy); c.lineTo(cx - 2, cy + 4); c.stroke();
-        if (arrowOn) glow(c, cx, cy, '#34c759');
+        // right-turn arrow: points to the driver's right (+x)
+        c.beginPath(); c.moveTo(bx - 6, by); c.lineTo(bx + 6, by); c.moveTo(bx + 2, by - 4); c.lineTo(bx + 6, by); c.lineTo(bx + 2, by + 4); c.stroke();
+        if (arrowOn) glow(c, bx, by, '#34c759');
       } else {
         const on = active === b;
-        c.fillStyle = on ? col[b] : '#1a1a1a'; c.beginPath(); c.arc(cx, cy, 10, 0, Math.PI * 2); c.fill();
-        if (on) glow(c, cx, cy, col[b]);
+        c.fillStyle = on ? col[b] : '#1a1a1a'; c.beginPath(); c.arc(bx, by, 10, 0, Math.PI * 2); c.fill();
+        if (on) glow(c, bx, by, col[b]);
       }
     });
-    // axis badge: coloured circle with the direction arrows, same as on the button
-    const bx = x - 24, by = y + h / 2;
-    c.fillStyle = A.color; c.beginPath(); c.arc(bx, by, 17, 0, Math.PI * 2); c.fill();
-    c.strokeStyle = '#fff'; c.lineWidth = 3; c.stroke();
-    c.font = 'bold 24px sans-serif'; c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.fillText(A.glyph, bx, by + 1);
+    // small visor on the side facing the traffic (local -y) so the "front" is obvious
+    c.fillStyle = '#111'; c.fillRect(x, y - 4, w, 4);
+    c.restore();
   }
+
+  function drawLights(c, s) {
+    const L = s.lights, cfgS = s.cfg, box = s.geo.box;
+    const bulbs = cfgS.yellow ? ['G', 'Y', 'R'] : ['G', 'R'];
+    const sBulbs = cfgS.arrow ? bulbs.concat(['A']) : bulbs;
+    const wS = 16 + sBulbs.length * 26, wN = 16 + bulbs.length * 26;
+    // southbound traffic (from the top): far corner is bottom-right -> head below the crossing, facing up
+    drawLightHead(c, box.x2 + 12 + wS / 2, box.y2 + 30, Math.PI / 2, box.x2 + 4, box.y2 + 4, sBulbs, L.ns, L.arrow, L.arrowYellow, 'ns');
+    // northbound traffic (from the bottom): far corner is top-left -> head above the crossing, facing down
+    drawLightHead(c, box.x1 - 12 - wN / 2, box.y1 - 30, -Math.PI / 2, box.x1 - 4, box.y1 - 4, bulbs, L.ns, false, false, 'ns');
+    // eastbound traffic (from the left): far corner is top-right -> head right of the crossing, facing left
+    drawLightHead(c, box.x2 + 30, box.y1 - 12 - wN / 2, 0, box.x2 + 4, box.y1 - 4, bulbs, L.ew, false, false, 'ew');
+    // westbound traffic (from the right): far corner is bottom-left -> head left of the crossing, facing right
+    drawLightHead(c, box.x1 - 30, box.y2 + 12 + wN / 2, Math.PI, box.x1 - 4, box.y2 + 4, bulbs, L.ew, false, false, 'ew');
+  }
+
   function glow(c, x, y, color) {
     const g = c.createRadialGradient(x, y, 8, x, y, 22);
     g.addColorStop(0, color + 'aa'); g.addColorStop(1, color + '00');
@@ -449,16 +477,6 @@
     c.beginPath(); c.moveTo(x + r, y); c.lineTo(x + w - r, y); c.quadraticCurveTo(x + w, y, x + w, y + r);
     c.lineTo(x + w, y + h - r); c.quadraticCurveTo(x + w, y + h, x + w - r, y + h); c.lineTo(x + r, y + h);
     c.quadraticCurveTo(x, y + h, x, y + h - r); c.lineTo(x, y + r); c.quadraticCurveTo(x, y, x + r, y); c.closePath();
-  }
-
-  function drawLights(c, s) {
-    const L = s.lights, cfgS = s.cfg;
-    const bulbs = cfgS.yellow ? ['G', 'Y', 'R'] : ['G', 'R'];
-    const nsBulbs = cfgS.arrow ? bulbs.concat(['A']) : bulbs;
-    const wNS = 16 + nsBulbs.length * 26;
-    drawLightHead(c, 242 - wNS, 130, nsBulbs, L.ns, L.arrow, L.arrowYellow, 'ns');   // beside the vertical road
-    const wEW = 16 + bulbs.length * 26;
-    drawLightHead(c, 236 - wEW, 358, bulbs, L.ew, false, false, 'ew');               // just below the horizontal road
   }
 
   function drawCar(c, car, t) {
@@ -501,9 +519,9 @@
     ctx.save();
     if (shakeT > 0) ctx.translate((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10);
     drawRoad(ctx, s);
-    drawLights(ctx, s);
     const cars = s.cars.slice().sort((a, b) => a.cy - b.cy);
     for (const car of cars) drawCar(ctx, car, t);
+    drawLights(ctx, s);
     ctx.restore();
   }
 
