@@ -122,19 +122,25 @@
   function lightSVG(bulbs, active, arrowOn, vertical, axis) {
     // bulbs: array of 'G','Y','R','A' in driver order (green .. red, arrow). Drawn like the canvas heads:
     // the vertical (E-W) head is read top-to-bottom, the horizontal (N-S) head right-to-left.
-    const n = bulbs.length, w = vertical ? 26 : 16 + n * 16, h = vertical ? 16 + n * 16 : 26;
+    const hasArrow = bulbs.includes('A');
+    bulbs = bulbs.filter(b => b !== 'A');
+    const n = bulbs.length, w = vertical ? 26 : 16 + n * 16, h = (vertical ? 16 + n * 16 : 26) + (hasArrow ? 20 : 0);
     const col = { R: '#ff3b30', Y: '#ffcc00', G: '#34c759', A: '#34c759' };
-    let s = `<svg viewBox="0 0 64 64">${miniMap(axis)}<rect x="${(64 - w) / 2}" y="${(64 - h) / 2}" width="${w}" height="${h}" rx="7" fill="#333"/>`;
+    const top = (64 - h) / 2;
+    let s = `<svg viewBox="0 0 64 64">${miniMap(axis)}<rect x="${(64 - w) / 2}" y="${top}" width="${w}" height="${h}" rx="7" fill="#333"/>`;
+    let lastX = 32, lastY = top + 13;
     bulbs.forEach((b, i) => {
-      const cx = vertical ? 32 : (64 + w) / 2 - 8 - 8 - i * 16, cy = vertical ? (64 - h) / 2 + 16 + i * 16 : 32;
-      const on = b === 'A' ? arrowOn : active === b;
-      if (b === 'A') {
-        s += `<circle cx="${cx}" cy="${cy}" r="6" fill="#111"/>` +
-             `<path d="M${cx + 4} ${cy} L${cx - 4} ${cy} M${cx - 1} ${cy - 3} L${cx - 4} ${cy} L${cx - 1} ${cy + 3}" stroke="${on ? col.A : '#2a4a2f'}" stroke-width="2" fill="none" stroke-linecap="round"/>`;
-      } else {
-        s += `<circle cx="${cx}" cy="${cy}" r="6" fill="${on ? col[b] : '#222'}" stroke="${on ? '#fff' : 'none'}" stroke-width="1"/>`;
-      }
+      const cx = vertical ? 32 : (64 + w) / 2 - 8 - 8 - i * 16, cy = vertical ? top + 16 + i * 16 : top + 13;
+      const on = active === b;
+      s += `<circle cx="${cx}" cy="${cy}" r="6" fill="${on ? col[b] : '#222'}" stroke="${on ? '#fff' : 'none'}" stroke-width="1"/>`;
+      lastX = cx; lastY = cy;
     });
+    if (hasArrow) {
+      // arrow lamp in its own row below the red lamp (Japanese layout)
+      const cx = vertical ? 32 : (64 + w) / 2 - 8 - 8, cy = lastY + 18;
+      s += `<circle cx="${cx}" cy="${cy}" r="6" fill="#111"/>` +
+           `<path d="M${cx - 4} ${cy} L${cx + 4} ${cy} M${cx + 1} ${cy - 3} L${cx + 4} ${cy} L${cx + 1} ${cy + 3}" stroke="${arrowOn ? col.A : '#2a4a2f'}" stroke-width="2" fill="none" stroke-linecap="round"/>`;
+    }
     return s + '</svg>';
   }
   function laneSVG(on) {
@@ -415,11 +421,23 @@
   }
 
   // One signal head, drawn as the approaching driver would see it: bulbs run left-to-right
-  // (green .. red, then the arrow) in the driver's own left/right, and the head sits on a
-  // pole at the far corner of the crossing, facing the oncoming traffic.
+  // (green .. red) in the driver's own left/right, the right-turn arrow sits below the red
+  // lamp (as on Japanese signals), and the head stands on a pole at the far corner of the
+  // crossing, facing the oncoming traffic. The face is drawn as a trapezoid that is wider
+  // on the side facing the traffic, so the head looks tilted towards the cars it controls.
   // heading: 0 = east, PI/2 = south, PI = west, -PI/2 = north
-  function drawLightHead(c, cx, cy, heading, poleX, poleY, bulbs, active, arrowOn, arrowYellow, axis) {
-    const n = bulbs.length, w = 16 + n * 26, h = 34, A = AXIS[axis];
+  const TILT = 0.78;   // width of the far edge relative to the near (traffic-facing) edge
+  function trapezoid(c, x, y, w, h, k, r) {
+    // near edge (towards the traffic) at y, far edge at y+h, narrower by k; slightly rounded
+    const dx = w * (1 - k) / 2;
+    c.beginPath();
+    c.moveTo(x + r, y); c.lineTo(x + w - r, y); c.quadraticCurveTo(x + w, y, x + w - r * 0.3, y + r);
+    c.lineTo(x + w - dx + r * 0.3, y + h - r); c.quadraticCurveTo(x + w - dx, y + h, x + w - dx - r, y + h);
+    c.lineTo(x + dx + r, y + h); c.quadraticCurveTo(x + dx, y + h, x + dx + r * 0.3, y + h - r);
+    c.lineTo(x + r * 0.3, y + r); c.quadraticCurveTo(x, y, x + r, y); c.closePath();
+  }
+  function drawLightHead(c, cx, cy, heading, poleX, poleY, bulbs, active, hasArrow, arrowOn, arrowYellow, axis) {
+    const n = bulbs.length, w = 16 + n * 26, h = hasArrow ? 34 + 30 : 34, A = AXIS[axis];
     const hot = pulse.t > 0 && pulse.axis === axis;
     // arm from the pole to the head
     c.strokeStyle = '#444'; c.lineWidth = 5; c.lineCap = 'round';
@@ -428,27 +446,34 @@
     c.save();
     c.translate(cx, cy);
     c.rotate(heading + Math.PI / 2);      // local +x = the driver's right-hand side
+    c.scale(1, -1);                       // local -y = towards the oncoming traffic (the face the driver sees)
     const x = -w / 2, y = -h / 2;
-    c.fillStyle = A.color; roundRect(c, x - 5, y - 5, w + 10, h + 10, 12); c.fill();
-    if (hot) { c.strokeStyle = `rgba(${A.rgb},${pulse.t})`; c.lineWidth = 6 + 10 * pulse.t; roundRect(c, x - 5, y - 5, w + 10, h + 10, 12); c.stroke(); }
-    c.fillStyle = '#2b2b2b'; roundRect(c, x, y, w, h, 8); c.fill();
+    // back/underside: gives the slab some thickness on the far side
+    c.fillStyle = '#1c1c1c'; trapezoid(c, x - 5 + 3, y - 5 + 8, w + 10 - 6, h + 10, TILT, 10); c.fill();
+    // coloured frame matching the button and the road
+    c.fillStyle = A.color; trapezoid(c, x - 5, y - 5, w + 10, h + 10, TILT, 10); c.fill();
+    if (hot) { c.strokeStyle = `rgba(${A.rgb},${pulse.t})`; c.lineWidth = 6 + 10 * pulse.t; trapezoid(c, x - 5, y - 5, w + 10, h + 10, TILT, 10); c.stroke(); }
+    c.fillStyle = '#2b2b2b'; trapezoid(c, x, y, w, h, TILT, 7); c.fill();
     c.strokeStyle = '#111'; c.lineWidth = 2; c.stroke();
+    // lamps: positions shrink towards the far edge to follow the perspective
     const col = { R: '#ff3b30', Y: '#ffcc00', G: '#34c759' };
+    const scaleAt = ly => 1 - (1 - TILT) * ((ly - y) / h);
+    const mainY = y + 17, k1 = scaleAt(mainY);
     bulbs.forEach((b, i) => {
-      const bx = x + 8 + 13 + i * 26, by = 0;
-      if (b === 'A') {
-        c.fillStyle = '#111'; c.beginPath(); c.arc(bx, by, 10, 0, Math.PI * 2); c.fill();
-        c.strokeStyle = arrowOn ? '#34c759' : arrowYellow ? '#ffcc00' : '#28402c'; c.lineWidth = 3; c.lineCap = 'round';
-        // right-turn arrow: points to the driver's right (+x)
-        c.beginPath(); c.moveTo(bx - 6, by); c.lineTo(bx + 6, by); c.moveTo(bx + 2, by - 4); c.lineTo(bx + 6, by); c.lineTo(bx + 2, by + 4); c.stroke();
-        if (arrowOn) glow(c, bx, by, '#34c759');
-      } else {
-        const on = active === b;
-        c.fillStyle = on ? col[b] : '#1a1a1a'; c.beginPath(); c.arc(bx, by, 10, 0, Math.PI * 2); c.fill();
-        if (on) glow(c, bx, by, col[b]);
-      }
+      const bx = (x + 8 + 13 + i * 26) * k1, by = mainY, r = 10 * k1;
+      const on = active === b;
+      c.fillStyle = on ? col[b] : '#1a1a1a'; c.beginPath(); c.ellipse(bx, by, r, r * 0.92, 0, 0, Math.PI * 2); c.fill();
+      if (on) glow(c, bx, by, col[b]);
     });
-    // small visor on the side facing the traffic (local -y) so the "front" is obvious
+    if (hasArrow) {
+      // right-turn arrow lamp below the red lamp, pointing to the driver's right (+x)
+      const ay = y + 34 + 15, k2 = scaleAt(ay), ax = (x + 8 + 13 + (n - 1) * 26) * k2, r = 10 * k2;
+      c.fillStyle = '#111'; c.beginPath(); c.ellipse(ax, ay, r, r * 0.92, 0, 0, Math.PI * 2); c.fill();
+      c.strokeStyle = arrowOn ? '#34c759' : arrowYellow ? '#ffcc00' : '#28402c'; c.lineWidth = 3; c.lineCap = 'round';
+      c.beginPath(); c.moveTo(ax - 6 * k2, ay); c.lineTo(ax + 6 * k2, ay); c.moveTo(ax + 2 * k2, ay - 4); c.lineTo(ax + 6 * k2, ay); c.lineTo(ax + 2 * k2, ay + 4); c.stroke();
+      if (arrowOn) glow(c, ax, ay, '#34c759');
+    }
+    // visor on the side facing the traffic (local -y)
     c.fillStyle = '#111'; c.fillRect(x, y - 4, w, 4);
     c.restore();
   }
@@ -456,16 +481,15 @@
   function drawLights(c, s) {
     const L = s.lights, cfgS = s.cfg, box = s.geo.box;
     const bulbs = cfgS.yellow ? ['G', 'Y', 'R'] : ['G', 'R'];
-    const sBulbs = cfgS.arrow ? bulbs.concat(['A']) : bulbs;
-    const wS = 16 + sBulbs.length * 26, wN = 16 + bulbs.length * 26;
+    const w = 16 + bulbs.length * 26, hS = cfgS.arrow ? 64 : 34;
     // southbound traffic (from the top): far corner is bottom-right -> head below the crossing, facing up
-    drawLightHead(c, box.x2 + 12 + wS / 2, box.y2 + 30, Math.PI / 2, box.x2 + 4, box.y2 + 4, sBulbs, L.ns, L.arrow, L.arrowYellow, 'ns');
+    drawLightHead(c, box.x2 + 12 + w / 2, box.y2 + 14 + hS / 2, Math.PI / 2, box.x2 + 4, box.y2 + 4, bulbs, L.ns, cfgS.arrow, L.arrow, L.arrowYellow, 'ns');
     // northbound traffic (from the bottom): far corner is top-left -> head above the crossing, facing down
-    drawLightHead(c, box.x1 - 12 - wN / 2, box.y1 - 30, -Math.PI / 2, box.x1 - 4, box.y1 - 4, bulbs, L.ns, false, false, 'ns');
+    drawLightHead(c, box.x1 - 12 - w / 2, box.y1 - 30, -Math.PI / 2, box.x1 - 4, box.y1 - 4, bulbs, L.ns, false, false, false, 'ns');
     // eastbound traffic (from the left): far corner is top-right -> head right of the crossing, facing left
-    drawLightHead(c, box.x2 + 30, box.y1 - 12 - wN / 2, 0, box.x2 + 4, box.y1 - 4, bulbs, L.ew, false, false, 'ew');
+    drawLightHead(c, box.x2 + 30, box.y1 - 12 - w / 2, 0, box.x2 + 4, box.y1 - 4, bulbs, L.ew, false, false, false, 'ew');
     // westbound traffic (from the right): far corner is bottom-left -> head left of the crossing, facing right
-    drawLightHead(c, box.x1 - 30, box.y2 + 12 + wN / 2, Math.PI, box.x1 - 4, box.y2 + 4, bulbs, L.ew, false, false, 'ew');
+    drawLightHead(c, box.x1 - 30, box.y2 + 12 + w / 2, Math.PI, box.x1 - 4, box.y2 + 4, bulbs, L.ew, false, false, false, 'ew');
   }
 
   function glow(c, x, y, color) {
