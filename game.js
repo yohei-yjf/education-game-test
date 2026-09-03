@@ -437,7 +437,8 @@
     c.lineTo(x + r * 0.3, y + r); c.quadraticCurveTo(x, y, x + r, y); c.closePath();
   }
   function drawLightHead(c, cx, cy, heading, poleX, poleY, bulbs, active, hasArrow, arrowOn, arrowYellow, axis) {
-    const n = bulbs.length, w = 16 + n * 26, h = hasArrow ? 34 + 30 : 34, A = AXIS[axis];
+    const P = 22, RB = 9;   // lamp pitch / radius
+    const n = bulbs.length, w = 14 + n * P, h = hasArrow ? 30 + 26 : 30, A = AXIS[axis];
     const hot = pulse.t > 0 && pulse.axis === axis;
     // arm from the pole to the head
     c.strokeStyle = '#444'; c.lineWidth = 5; c.lineCap = 'round';
@@ -458,19 +459,19 @@
     // lamps: positions shrink towards the far edge to follow the perspective
     const col = { R: '#ff3b30', Y: '#ffcc00', G: '#34c759' };
     const scaleAt = ly => 1 - (1 - TILT) * ((ly - y) / h);
-    const mainY = y + 17, k1 = scaleAt(mainY);
+    const mainY = y + 15, k1 = scaleAt(mainY);
     bulbs.forEach((b, i) => {
-      const bx = (x + 8 + 13 + i * 26) * k1, by = mainY, r = 10 * k1;
+      const bx = (x + 7 + P / 2 + i * P) * k1, by = mainY, r = RB * k1;
       const on = active === b;
       c.fillStyle = on ? col[b] : '#1a1a1a'; c.beginPath(); c.ellipse(bx, by, r, r * 0.92, 0, 0, Math.PI * 2); c.fill();
       if (on) glow(c, bx, by, col[b]);
     });
     if (hasArrow) {
       // right-turn arrow lamp below the red lamp, pointing to the driver's right (+x)
-      const ay = y + 34 + 15, k2 = scaleAt(ay), ax = (x + 8 + 13 + (n - 1) * 26) * k2, r = 10 * k2;
+      const ay = y + 30 + 13, k2 = scaleAt(ay), ax = (x + 7 + P / 2 + (n - 1) * P) * k2, r = RB * k2;
       c.fillStyle = '#111'; c.beginPath(); c.ellipse(ax, ay, r, r * 0.92, 0, 0, Math.PI * 2); c.fill();
       c.strokeStyle = arrowOn ? '#34c759' : arrowYellow ? '#ffcc00' : '#28402c'; c.lineWidth = 3; c.lineCap = 'round';
-      c.beginPath(); c.moveTo(ax - 6 * k2, ay); c.lineTo(ax + 6 * k2, ay); c.moveTo(ax + 2 * k2, ay - 4); c.lineTo(ax + 6 * k2, ay); c.lineTo(ax + 2 * k2, ay + 4); c.stroke();
+      c.beginPath(); c.moveTo(ax - 5 * k2, ay); c.lineTo(ax + 5 * k2, ay); c.moveTo(ax + 1.5 * k2, ay - 3.5); c.lineTo(ax + 5 * k2, ay); c.lineTo(ax + 1.5 * k2, ay + 3.5); c.stroke();
       if (arrowOn) glow(c, ax, ay, '#34c759');
     }
     // visor on the side facing the traffic (local -y)
@@ -479,17 +480,20 @@
   }
 
   function drawLights(c, s) {
-    const L = s.lights, cfgS = s.cfg, box = s.geo.box;
+    const L = s.lights, cfgS = s.cfg, box = s.geo.box, g = s.geo;
     const bulbs = cfgS.yellow ? ['G', 'Y', 'R'] : ['G', 'R'];
-    const w = 16 + bulbs.length * 26, hS = cfgS.arrow ? 64 : 34;
-    // southbound traffic (from the top): far corner is bottom-right -> head below the crossing, facing up
-    drawLightHead(c, box.x2 + 12 + w / 2, box.y2 + 14 + hS / 2, Math.PI / 2, box.x2 + 4, box.y2 + 4, bulbs, L.ns, cfgS.arrow, L.arrow, L.arrowYellow, 'ns');
-    // northbound traffic (from the bottom): far corner is top-left -> head above the crossing, facing down
-    drawLightHead(c, box.x1 - 12 - w / 2, box.y1 - 30, -Math.PI / 2, box.x1 - 4, box.y1 - 4, bulbs, L.ns, false, false, false, 'ns');
-    // eastbound traffic (from the left): far corner is top-right -> head right of the crossing, facing left
-    drawLightHead(c, box.x2 + 30, box.y1 - 12 - w / 2, 0, box.x2 + 4, box.y1 - 4, bulbs, L.ew, false, false, false, 'ew');
-    // westbound traffic (from the right): far corner is bottom-left -> head left of the crossing, facing right
-    drawLightHead(c, box.x1 - 30, box.y2 + 12 + w / 2, Math.PI, box.x1 - 4, box.y2 + 4, bulbs, L.ew, false, false, false, 'ew');
+    const hS = cfgS.arrow ? 56 : 30;
+    const beyond = 26;   // distance from the crosswalk on the far side to the head centre
+    // Each head hangs from an arm on the pole at the far-left corner (driver's left) of the crossing
+    // and sits over the far side of the road, above the lanes of the traffic it controls.
+    // southbound traffic (from the top, lanes x 300..340): head below the crossing, facing up
+    drawLightHead(c, 326, g.stop.N + 16 + beyond + hS / 2 - 15, Math.PI / 2, box.x2 + 4, box.y2 + 4, bulbs, L.ns, cfgS.arrow, L.arrow, L.arrowYellow, 'ns');
+    // northbound traffic (from the bottom, lane x 260..300): head above the crossing, facing down
+    drawLightHead(c, 274, g.stop.S - 16 - beyond, -Math.PI / 2, box.x1 - 4, box.y1 - 4, bulbs, L.ns, false, false, false, 'ns');
+    // eastbound traffic (from the left, lane y 260..300): head right of the crossing, facing left
+    drawLightHead(c, g.stop.W + 16 + beyond, 274, 0, box.x2 + 4, box.y1 - 4, bulbs, L.ew, false, false, false, 'ew');
+    // westbound traffic (from the right, lane y 300..340): head left of the crossing, facing right
+    drawLightHead(c, g.stop.E - 16 - beyond, 326, Math.PI, box.x1 - 4, box.y2 + 4, bulbs, L.ew, false, false, false, 'ew');
   }
 
   function glow(c, x, y, color) {
