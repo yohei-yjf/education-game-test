@@ -45,6 +45,10 @@ body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Color Em
 .toggle { position: relative; width: 84px; height: 84px; border-radius: 22px; border: 4px solid #d9d2c3; background: #fff; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; transition: transform .1s, border-color .2s; }
 .toggle:active { transform: scale(.94); }
 .toggle.on { border-color: #4cbf5e; background: #ecfbee; }
+.toggle[data-axis] { background: #fff; }
+.toggle[data-axis].on { background: #ecfbee; }
+.toggle[data-axis="ns"], .toggle[data-axis="ns"].on { border-color: #2f80ed; }
+.toggle[data-axis="ew"], .toggle[data-axis="ew"].on { border-color: #e84393; }
 .toggle:disabled { opacity: .5; cursor: default; }
 .toggle svg { width: 64px; height: 64px; display: block; }
 .toggle .hand { position: absolute; top: -46px; left: 50%; font-size: 40px; transform: translateX(-50%); animation: bounce .8s infinite; pointer-events: none; display: none; }

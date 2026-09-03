@@ -8,6 +8,10 @@
   const W = 600;
   const MOOD = { happy: '😊', sad: '😢', angry: '😠', hmm: '😕', sleepy: '😴', scared: '😨', crash: '😵' };
   const COLORS = ['#ff595e', '#1982c4', '#ffca3a', '#8ac926', '#6a4c93', '#ff924c'];
+  // each road axis has its own colour so a child can match button <-> signal <-> road
+  const AXIS = { ns: { color: '#2f80ed', rgb: '47,128,237', glyph: '⬍' }, ew: { color: '#e84393', rgb: '232,67,147', glyph: '⬌' } };
+  const TOGGLE_AXIS = { nsLight: 'ns', ewLight: 'ew', yellow: null, arrow: 'ns', lane: 'ns' };
+  let pulse = { axis: null, t: 0 };   // road highlight after a button press
 
   // ---------- persistent progress ----------
   let unlocked = 1;
@@ -106,11 +110,18 @@
 
   // ---------- UI: toggles ----------
   const svgNS = 'http://www.w3.org/2000/svg';
-  function lightSVG(bulbs, active, arrowOn, vertical) {
+  function miniMap(axis) {
+    // small crossroads; the road this control belongs to is painted in the axis colour
+    if (!axis) return '';
+    const a = AXIS[axis];
+    return `<rect x="24" y="0" width="16" height="64" fill="${axis === 'ns' ? a.color : '#cfc9bb'}" opacity="${axis === 'ns' ? .55 : .5}"/>` +
+           `<rect x="0" y="24" width="64" height="16" fill="${axis === 'ew' ? a.color : '#cfc9bb'}" opacity="${axis === 'ew' ? .55 : .5}"/>`;
+  }
+  function lightSVG(bulbs, active, arrowOn, vertical, axis) {
     // bulbs: array of 'R','Y','G','A'
     const n = bulbs.length, w = vertical ? 26 : 16 + n * 16, h = vertical ? 16 + n * 16 : 26;
     const col = { R: '#ff3b30', Y: '#ffcc00', G: '#34c759', A: '#34c759' };
-    let s = `<svg viewBox="0 0 64 64"><rect x="${(64 - w) / 2}" y="${(64 - h) / 2}" width="${w}" height="${h}" rx="7" fill="#333"/>`;
+    let s = `<svg viewBox="0 0 64 64">${miniMap(axis)}<rect x="${(64 - w) / 2}" y="${(64 - h) / 2}" width="${w}" height="${h}" rx="7" fill="#333"/>`;
     bulbs.forEach((b, i) => {
       const cx = vertical ? 32 : (64 - w) / 2 + 8 + 8 + i * 16, cy = vertical ? (64 - h) / 2 + 16 + i * 16 : 32;
       const on = b === 'A' ? arrowOn : active === b;
@@ -124,7 +135,8 @@
     return s + '</svg>';
   }
   function laneSVG(on) {
-    let s = `<svg viewBox="0 0 64 64"><rect x="${on ? 12 : 20}" y="4" width="${on ? 40 : 24}" height="56" fill="#555" rx="3"/>`;
+    let s = `<svg viewBox="0 0 64 64"><rect x="${on ? 12 : 20}" y="4" width="${on ? 40 : 24}" height="56" fill="#555" rx="3"/>` +
+            `<rect x="${on ? 12 : 20}" y="4" width="${on ? 40 : 24}" height="56" fill="${AXIS.ns.color}" opacity=".3" rx="3"/>`;
     if (on) {
       s += `<line x1="32" y1="6" x2="32" y2="58" stroke="#fff" stroke-width="2" stroke-dasharray="6 5"/>`;
       s += `<path d="M42 20 V40 M42 40 l-4 -5 M42 40 l4 -5" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round"/>`;
@@ -136,10 +148,10 @@
   }
   function toggleIcon(kind) {
     switch (kind) {
-      case 'nsLight': return lightSVG(['R', 'G'], cfg.lights.ns, false, true);
-      case 'ewLight': return lightSVG(['R', 'G'], cfg.lights.ew, false, false);
+      case 'nsLight': return lightSVG(['R', 'G'], cfg.lights.ns, false, true, 'ns');
+      case 'ewLight': return lightSVG(['R', 'G'], cfg.lights.ew, false, false, 'ew');
       case 'yellow': return cfg.yellow ? lightSVG(['G', 'Y', 'R'], 'Y', false, false) : lightSVG(['G', 'R'], '', false, false);
-      case 'arrow': return cfg.arrow ? lightSVG(['G', 'Y', 'R', 'A'], '', true, false) : lightSVG(['G', 'Y', 'R'], '', false, false);
+      case 'arrow': return cfg.arrow ? lightSVG(['G', 'Y', 'R', 'A'], '', true, false, 'ns') : lightSVG(['G', 'Y', 'R'], '', false, false, 'ns');
       case 'lane': return laneSVG(cfg.turnLane);
     }
     return '';
@@ -150,7 +162,10 @@
     stage.toggles.forEach(kind => {
       const b = document.createElement('button');
       b.className = 'toggle'; b.dataset.kind = kind;
-      b.innerHTML = toggleIcon(kind) + `<span class="lbl">${LBL[kind]}</span><span class="hand">👆</span>`;
+      const axis = TOGGLE_AXIS[kind];
+      if (axis) { b.dataset.axis = axis; b.style.borderColor = AXIS[axis].color; }
+      const lblStyle = axis ? ` style="background:${AXIS[axis].color};color:#fff;border-color:${AXIS[axis].color}"` : '';
+      b.innerHTML = toggleIcon(kind) + `<span class="lbl"${lblStyle}>${LBL[kind]}</span><span class="hand">👆</span>`;
       b.addEventListener('click', () => onToggle(kind, b));
       el.appendChild(b);
     });
@@ -178,6 +193,7 @@
       case 'lane': cfg.turnLane = !cfg.turnLane; break;
     }
     if (sim) { sim.cfg.yellow = cfg.yellow; sim.cfg.arrow = cfg.arrow; sim.cfg.lights = cfg.lights; }
+    if (TOGGLE_AXIS[kind]) pulse = { axis: TOGGLE_AXIS[kind], t: 1 };
     if (!running) idleSim = buildSim(false);
     refreshToggles();
   }
@@ -325,12 +341,15 @@
     // grass + a few trees
     c.fillStyle = '#7ccf6b'; c.fillRect(0, 0, W, W);
     c.font = '30px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
-    [[60, 80, '🌳'], [520, 120, '🌳'], [80, 520, '🌲'], [540, 500, '🏠'], [140, 540, '🌼'], [560, 60, '🌸']].forEach(t => c.fillText(t[2], t[0], t[1]));
+    [[60, 60, '🌳'], [520, 120, '🌳'], [80, 540, '🌲'], [540, 500, '🏠'], [180, 470, '🌼'], [560, 60, '🌸']].forEach(t => c.fillText(t[2], t[0], t[1]));
     // roads
     c.fillStyle = '#5c5f63';
     c.fillRect(260, 0, 80, W);                 // N-S
     c.fillRect(0, 260, W, 80);                 // E-W
     if (lane) { c.beginPath(); c.moveTo(340, 0); c.lineTo(380, 0); c.lineTo(380, 372); c.lineTo(340, 452); c.closePath(); c.fill(); }
+    // tint each road in its axis colour (the crossing itself stays grey)
+    tintRoads(c, s, 'ns', 0.2); tintRoads(c, s, 'ew', 0.2);
+    if (pulse.t > 0) tintRoads(c, s, pulse.axis, 0.45 * pulse.t);
     // edge lines
     c.strokeStyle = '#eee'; c.lineWidth = 2;
     c.beginPath();
@@ -373,6 +392,17 @@
     }
     if (lane) for (let i = 4; i < 6; i++) c.fillRect(264 + i * 20, 232, 12, 16);
   }
+  function tintRoads(c, s, axis, alpha) {
+    const box = s.geo.box, lane = s.cfg.turnLane;
+    c.fillStyle = `rgba(${AXIS[axis].rgb},${alpha})`;
+    if (axis === 'ns') {
+      c.fillRect(260, 0, 80, 260); c.fillRect(260, 340, 80, W - 340);
+      if (lane) { c.beginPath(); c.moveTo(340, 0); c.lineTo(380, 0); c.lineTo(380, 260); c.lineTo(340, 260); c.closePath(); c.fill();
+                  c.beginPath(); c.moveTo(340, 340); c.lineTo(380, 340); c.lineTo(380, 372); c.lineTo(340, 452); c.closePath(); c.fill(); }
+    } else {
+      c.fillRect(0, 260, 260, 80); c.fillRect(box.x2, 260, W - box.x2, 80);
+    }
+  }
   function arrowStraight(c, x, y1, y2) {
     c.beginPath(); c.moveTo(x, y1); c.lineTo(x, y2); c.moveTo(x - 7, y2 - 9); c.lineTo(x, y2); c.lineTo(x + 7, y2 - 9); c.stroke();
   }
@@ -382,7 +412,11 @@
   }
 
   function drawLightHead(c, x, y, bulbs, active, arrowOn, arrowYellow, axis) {
-    const w = 16 + bulbs.length * 26, h = 34;
+    const w = 16 + bulbs.length * 26, h = 34, A = AXIS[axis];
+    const hot = pulse.t > 0 && pulse.axis === axis;
+    // coloured frame matching the button and the road
+    c.fillStyle = A.color; roundRect(c, x - 5, y - 5, w + 10, h + 10, 12); c.fill();
+    if (hot) { c.strokeStyle = `rgba(${A.rgb},${pulse.t})`; c.lineWidth = 6 + 10 * pulse.t; roundRect(c, x - 5, y - 5, w + 10, h + 10, 12); c.stroke(); }
     c.fillStyle = '#2b2b2b'; roundRect(c, x, y, w, h, 8); c.fill();
     c.strokeStyle = '#111'; c.lineWidth = 2; c.stroke();
     const col = { R: '#ff3b30', Y: '#ffcc00', G: '#34c759' };
@@ -399,10 +433,12 @@
         if (on) glow(c, cx, cy, col[b]);
       }
     });
-    // axis marker
-    c.font = 'bold 22px sans-serif'; c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.strokeStyle = '#333'; c.lineWidth = 4; c.lineJoin = 'round';
-    c.strokeText(axis, x - 16, y + h / 2); c.fillText(axis, x - 16, y + h / 2);
+    // axis badge: coloured circle with the direction arrows, same as on the button
+    const bx = x - 24, by = y + h / 2;
+    c.fillStyle = A.color; c.beginPath(); c.arc(bx, by, 17, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = '#fff'; c.lineWidth = 3; c.stroke();
+    c.font = 'bold 24px sans-serif'; c.fillStyle = '#fff'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText(A.glyph, bx, by + 1);
   }
   function glow(c, x, y, color) {
     const g = c.createRadialGradient(x, y, 8, x, y, 22);
@@ -420,9 +456,9 @@
     const bulbs = cfgS.yellow ? ['G', 'Y', 'R'] : ['G', 'R'];
     const nsBulbs = cfgS.arrow ? bulbs.concat(['A']) : bulbs;
     const wNS = 16 + nsBulbs.length * 26;
-    drawLightHead(c, 248 - wNS, 96, nsBulbs, L.ns, L.arrow, L.arrowYellow, '⬍');
+    drawLightHead(c, 242 - wNS, 130, nsBulbs, L.ns, L.arrow, L.arrowYellow, 'ns');   // beside the vertical road
     const wEW = 16 + bulbs.length * 26;
-    drawLightHead(c, 248 - wEW, 470, bulbs, L.ew, false, false, '⬌');
+    drawLightHead(c, 236 - wEW, 358, bulbs, L.ew, false, false, 'ew');               // just below the horizontal road
   }
 
   function drawCar(c, car, t) {
@@ -504,6 +540,7 @@
       $('timer-fill').style.width = Math.max(0, 100 - roundT / stage.roundLen * 100) + '%';
     }
     if (shakeT > 0) shakeT -= dt;
+    if (pulse.t > 0) pulse.t = Math.max(0, pulse.t - dt * 1.2);
     stepFx(dt);
     const s = sim || idleSim;
     if (s) drawScene(s, t);
