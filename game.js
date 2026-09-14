@@ -47,10 +47,7 @@
       src.connect(g).connect(a.destination); src.start();
       tone(80, 0, 0.5, 'sawtooth', 0.3);
     },
-    sad() { tone(392, 0, 0.3, 'triangle', 0.2); tone(311, 0.3, 0.5, 'triangle', 0.2); },
-    star() { [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.1, 0.25, 'triangle', 0.2)); },
     clear() { [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => tone(f, i * 0.12, 0.3, 'triangle', 0.22)); },
-    sleepy() { tone(330, 0, 0.4, 'sine', 0.15); tone(262, 0.45, 0.6, 'sine', 0.15); },
   };
 
   // ---------- state ----------
@@ -91,7 +88,7 @@
       const b = document.createElement('button');
       b.className = 'stage-btn' + (i === stageIdx ? ' current' : '') + (i + 1 < unlocked ? ' done' : '') + (i + 1 > unlocked ? ' locked' : '');
       b.textContent = i + 1 > unlocked ? '🔒' : st.icon;
-      b.addEventListener('click', () => { if (i + 1 <= unlocked && !running) { SFX.click(); loadStage(i); } });
+      b.addEventListener('click', () => { if (i + 1 <= unlocked) { SFX.click(); loadStage(i); } });
       el.appendChild(b);
     });
   }
@@ -187,11 +184,9 @@
       const on = k === 'nsLight' ? cfg.lights.ns === 'G' : k === 'ewLight' ? cfg.lights.ew === 'G'
                : k === 'yellow' ? cfg.yellow : k === 'arrow' ? cfg.arrow : cfg.turnLane;
       b.classList.toggle('on', !!on);
-      b.disabled = running && stage.mode !== 'manual';
     });
   }
   function onToggle(kind, btn) {
-    if (btn.disabled) return;
     SFX.click();
     btn.classList.remove('hint');
     switch (kind) {
@@ -201,7 +196,10 @@
       case 'arrow': cfg.arrow = !cfg.arrow; break;
       case 'lane': cfg.turnLane = !cfg.turnLane; break;
     }
-    if (sim) { sim.cfg.yellow = cfg.yellow; sim.cfg.arrow = cfg.arrow; sim.cfg.lights = cfg.lights; }
+    if (sim) {
+      if (kind === 'lane') sim = buildSim(true);   // lane layout is fixed when a sim is created, so rebuild it
+      else { sim.cfg.yellow = cfg.yellow; sim.cfg.arrow = cfg.arrow; sim.cfg.lights = cfg.lights; }
+    }
     if (TOGGLE_AXIS[kind]) pulse = { axis: TOGGLE_AXIS[kind], t: 1 };
     if (!running) idleSim = buildSim(false);
     refreshToggles();
@@ -221,7 +219,6 @@
     renderStages(); renderGoals(); renderToggles();
     $('overlay').classList.add('hidden');
     $('play').classList.remove('hidden');
-    $('finish').classList.add('hidden');
     wrap.classList.remove('running');
   }
 
@@ -233,60 +230,51 @@
     running = true; fxList = [];
     wrap.classList.add('running');
     $('play').classList.add('hidden');
-    $('finish').classList.remove('hidden');
     $('overlay').classList.add('hidden');
     refreshToggles();
+  }
+
+  // A goal is reached once its own approach(es) have proven the point with real, safe traffic:
+  // enough cars have gone through, and (where relevant) none of them ended up sad or angry.
+  // Reaching zero here is possible forever (e.g. both lights red) - the round simply keeps
+  // running until the player fixes it or crashes it, there is no time limit and no failure state.
+  function evaluateProgress(stats) {
+    const p = stats.passed, total = p.S + p.N + p.E + p.W, out = {};
+    if (stage.goals.includes('ns')) out.ns = (p.S + p.N) >= 2;
+    if (stage.goals.includes('ew')) out.ew = (p.E + p.W) >= 2;
+    if (stage.goals.includes('safe')) out.safe = total >= 6;
+    if (stage.goals.includes('turn')) out.turn = p.turn >= 2 && stats.sadTurn === 0;
+    if (stage.goals.includes('flow')) out.flow = p.straightS >= 4 && stats.angry === 0;
+    return out;
+  }
+  // Checks the running sim against the stage's goals, lighting up each goal chip live as it's
+  // proven, and reports whether every goal for this stage has now been reached.
+  function checkProgress() {
+    const progress = evaluateProgress(sim.stats);
+    let changed = false;
+    stage.goals.forEach(g => { if (progress[g] && !goalsDone[g]) { goalsDone[g] = true; changed = true; } });
+    if (changed) renderGoals();
+    return stage.goals.every(g => goalsDone[g]);
   }
 
   function endRound(crashed) {
     running = false;
     wrap.classList.remove('running');
-    $('finish').classList.add('hidden');
     refreshToggles();
-    const st = sim.stats, p = st.passed;
-    let emoji = '⭐', sub = '', ok = false, cleared = false, hintKind = null, sound = 'star';
+    let emoji, sub, cleared, hintKind = null;
     if (crashed) {
-      emoji = '💥'; sub = '😵😵'; sound = null;
+      emoji = '💥'; sub = '😵😵'; cleared = false;
       hintKind = stage.mode === 'manual' ? null : 'yellow';
-    } else if (stage.id === 1) {
-      const ns = p.S + p.N > 0, ew = p.E + p.W > 0;
-      if (!ns && !ew) { emoji = '😴'; sub = '💤'; sound = 'sleepy'; }
-      else {
-        ok = true;
-        if (ns) goalsDone.ns = true;
-        if (ew) goalsDone.ew = true;
-        renderGoals();
-        cleared = goalsDone.ns && goalsDone.ew;
-        if (!cleared) { sub = goalsDone.ns ? '🚗⬌❓' : '🚗⬍❓'; hintKind = goalsDone.ns ? 'ewLight' : 'nsLight'; }
-      }
-    } else if (stage.id === 2) {
-      ok = cleared = true; goalsDone.safe = true;
-    } else if (stage.id === 3) {
-      if (st.sadTurn > 0 || p.turn === 0) { emoji = '😢'; sub = '🚗↲💧'; hintKind = 'arrow'; sound = 'sad'; }
-      else { ok = cleared = true; goalsDone.turn = true; }
-    } else if (stage.id === 4) {
-      if (st.angry > 0) { emoji = '😠'; sub = '🚗🚗🚗💢'; hintKind = 'lane'; sound = 'sad'; }
-      else if (p.straightS < 4) { emoji = '😕'; sub = '🚗…'; sound = 'sad'; }
-      else { ok = cleared = true; goalsDone.flow = true; }
     } else {
-      // free play: count stars
-      goalsDone = { safe: true };
-      const turnOK = st.sadTurn === 0 && p.turn > 0, flowOK = st.angry === 0 && p.straightS >= 4;
-      if (turnOK) goalsDone.turn = true;
-      if (flowOK) goalsDone.flow = true;
-      const stars = 1 + (turnOK ? 1 : 0) + (flowOK ? 1 : 0);
-      emoji = stars === 3 ? '🏆' : '⭐'.repeat(stars);
-      sub = stars === 3 ? '⭐⭐⭐' : (!turnOK ? '😢↲ ' : '') + (!flowOK ? '😠🚗🚗' : '');
-      hintKind = !turnOK ? 'arrow' : !flowOK ? 'lane' : null;
-      ok = true; cleared = stars === 3;
-      if (!cleared) sound = 'sad';
+      // getting here means every goal for this stage was already proven live, so this is always a clear
+      cleared = true;
+      emoji = stage.id === 5 ? '🏆' : '🎉'; sub = '⭐⭐⭐';
+      SFX.clear();
     }
-    if (cleared) { emoji = stage.id === 5 ? '🏆' : '🎉'; sub = '⭐⭐⭐'; sound = 'clear'; }
-    if (sound === 'star') SFX.star(); else if (sound === 'sad') SFX.sad(); else if (sound === 'clear') SFX.clear(); else if (sound === 'sleepy') SFX.sleepy();
     if (cleared) {
       if (unlocked < stage.id + 1 && stage.id < STAGES.length) { unlocked = stage.id + 1; saveUnlocked(); }
       else if (stage.id === STAGES.length && unlocked < STAGES.length + 1) { unlocked = STAGES.length + 1; saveUnlocked(); }
-      renderStages(); renderGoals();
+      renderStages();
       confetti();
     }
     if (hintKind) hint(hintKind);
@@ -307,7 +295,6 @@
   function crashed_delay(e) { return e === '💥' ? 900 : 400; }
   $('next').addEventListener('click', () => { SFX.click(); if (nextAction) nextAction(); });
   $('play').addEventListener('click', startRound);
-  $('finish').addEventListener('click', () => { if (running && sim && !sim.crashed) endRound(false); });
   $('sound').addEventListener('click', () => { muted = !muted; $('sound').textContent = muted ? '🔇' : '🔊'; if (!muted) SFX.click(); });
 
   // ---------- effects ----------
@@ -584,7 +571,8 @@
           if (e.type === 'crash') { burst(e.x, e.y, '💥'); shakeT = 0.5; wrap.classList.add('shake'); SFX.crash(); setTimeout(() => wrap.classList.remove('shake'), 600); }
           if (e.type === 'passed' && e.car.mood === 'happy') sparkle(e.car.cx, e.car.cy);
         }
-        if (sim.crashed) { running = false; $('finish').classList.add('hidden'); setTimeout(() => endRound(true), 700); break; }
+        if (sim.crashed) { running = false; setTimeout(() => endRound(true), 700); break; }
+        if (checkProgress()) { running = false; endRound(false); break; }
       }
     }
     if (shakeT > 0) shakeT -= dt;
