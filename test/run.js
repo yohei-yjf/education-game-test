@@ -17,6 +17,25 @@ function run(stage, overrides, seconds, onStep) {
 }
 const fmt = s => `t=${s.t.toFixed(1)} crashed=${s.crashed} passed=${JSON.stringify(s.stats.passed)} sadTurn=${s.stats.sadTurn} angry=${s.stats.angry} maxTurnWait=${s.stats.maxTurnWait.toFixed(1)} stuck=${s.stats.stuck}`;
 
+// Runs a manual-mode stage while applying a scripted sequence of light changes at given
+// times, mimicking a child pressing the light buttons live - used for stage 2, where the
+// player drives the signal directly instead of an auto-cycling phase.
+function runScript(stage, overrides, steps, seconds) {
+  const st = STAGES.find(s => s.id === stage);
+  const opts = Object.assign({ mode: st.mode }, JSON.parse(JSON.stringify(st.init)), overrides || {});
+  opts.spawns = st.spawns.map(s => Object.assign({}, s));
+  const sim = Sim.create(opts);
+  const dt = 1 / 60;
+  const n = Math.round((seconds || st.roundLen) / dt);
+  let si = 0;
+  for (let i = 0; i < n; i++) {
+    while (si < steps.length && sim.t >= steps[si].at) { Object.assign(sim.cfg.lights, steps[si].lights); si++; }
+    sim.step(dt);
+    if (sim.crashed) break;
+  }
+  return sim;
+}
+
 let s;
 console.log('--- Stage 1');
 s = run(1, { lights: { ns: 'G', ew: 'G' } }); console.log(' both G  ', fmt(s)); assert(s.crashed, 'both green must crash');
@@ -26,9 +45,14 @@ s = run(1, { lights: { ns: 'R', ew: 'R' } }); console.log(' both R  ', fmt(s)); 
 assert(s.cars.some(c => c.mood === 'sleepy'), 'cars should be sleepy');
 
 console.log('--- Stage 2');
-s = run(2, { yellow: false }); console.log(' no yellow', fmt(s)); assert(s.crashed && s.t < 7, 'no yellow must crash at the first change');
-s = run(2, { yellow: true }); console.log(' yellow   ', fmt(s)); assert(!s.crashed && s.stats.passed.S >= 2 && s.stats.passed.E >= 1);
-s = run(2, { yellow: true }, 120); console.log(' yellow120', fmt(s)); assert(!s.crashed);
+s = runScript(2, {}, [], 10); console.log(' both red ', fmt(s)); assert(!s.crashed && s.stats.passed.S + s.stats.passed.E === 0, 'both red: nobody moves, nobody crashes');
+s = runScript(2, {}, [{ at: 0, lights: { ns: 'G', ew: 'G' } }], 10); console.log(' both G   ', fmt(s)); assert(s.crashed, 'both green must crash');
+s = runScript(2, {}, [{ at: 0, lights: { ns: 'G' } }, { at: 5.0, lights: { ns: 'R', ew: 'G' } }], 12);
+console.log(' instant flip', fmt(s)); assert(s.crashed, 'switching ns straight to red + ew straight to green with no gap must crash');
+s = runScript(2, {}, [{ at: 0, lights: { ns: 'G' } }, { at: 5.0, lights: { ns: 'Y' } }, { at: 6.0, lights: { ns: 'R' } }, { at: 6.5, lights: { ew: 'G' } }], 16);
+console.log(' safe cycle', fmt(s)); assert(!s.crashed && s.stats.passed.S + s.stats.passed.N >= 2 && s.stats.passed.E + s.stats.passed.W >= 2, 'yellow then a pause before the cross street goes green must be safe and clear both goals');
+s = runScript(2, {}, [{ at: 0, lights: { ns: 'G' } }, { at: 5.0, lights: { ns: 'Y' } }, { at: 6.0, lights: { ns: 'R' } }, { at: 6.5, lights: { ew: 'G' } }], 120);
+console.log(' safe120  ', fmt(s)); assert(!s.crashed, 'stays safe over a long run once traffic is flowing');
 
 console.log('--- Stage 3');
 s = run(3, { arrow: false }); console.log(' no arrow ', fmt(s)); assert(!s.crashed); assert(s.stats.sadTurn >= 1, 'turners must be sad');

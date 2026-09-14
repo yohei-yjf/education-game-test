@@ -154,8 +154,8 @@
   }
   function toggleIcon(kind) {
     switch (kind) {
-      case 'nsLight': return lightSVG(['G', 'R'], cfg.lights.ns, false, false, 'ns');
-      case 'ewLight': return lightSVG(['G', 'R'], cfg.lights.ew, false, true, 'ew');
+      case 'nsLight': return lightSVG(cfg.yellow ? ['G', 'Y', 'R'] : ['G', 'R'], cfg.lights.ns, false, false, 'ns');
+      case 'ewLight': return lightSVG(cfg.yellow ? ['G', 'Y', 'R'] : ['G', 'R'], cfg.lights.ew, false, true, 'ew');
       case 'yellow': return cfg.yellow ? lightSVG(['G', 'Y', 'R'], 'Y', false, false) : lightSVG(['G', 'R'], '', false, false);
       case 'arrow': return cfg.arrow ? lightSVG(['G', 'Y', 'R', 'A'], '', true, false, 'ns') : lightSVG(['G', 'Y', 'R'], '', false, false, 'ns');
       case 'lane': return laneSVG(cfg.turnLane);
@@ -189,9 +189,10 @@
   function onToggle(kind, btn) {
     SFX.click();
     btn.classList.remove('hint');
+    const cycle = v => cfg.yellow ? (v === 'R' ? 'G' : v === 'G' ? 'Y' : 'R') : (v === 'G' ? 'R' : 'G');
     switch (kind) {
-      case 'nsLight': cfg.lights.ns = cfg.lights.ns === 'G' ? 'R' : 'G'; break;
-      case 'ewLight': cfg.lights.ew = cfg.lights.ew === 'G' ? 'R' : 'G'; break;
+      case 'nsLight': cfg.lights.ns = cycle(cfg.lights.ns); break;
+      case 'ewLight': cfg.lights.ew = cycle(cfg.lights.ew); break;
       case 'yellow': cfg.yellow = !cfg.yellow; break;
       case 'arrow': cfg.arrow = !cfg.arrow; break;
       case 'lane': cfg.turnLane = !cfg.turnLane; break;
@@ -336,71 +337,79 @@
   }
 
   // ---------- drawing ----------
+  // Every road/crosswalk/signal position below is derived from the box's edges (plus the
+  // lane centres sim.js reports in s.geo.lane) rather than hardcoded, so the same drawing
+  // code renders both the normal crossing and the enlarged one used by the yellow-signal
+  // stage without duplicating the layout logic.
   function drawRoad(c, s) {
-    const g = s.geo, box = g.box, lane = s.cfg.turnLane;
+    const g = s.geo, box = g.box, Ln = g.lane, lane = s.cfg.turnLane;
+    const innerX2 = lane ? box.x2 - 40 : box.x2;   // right edge of the through NS lanes, before any turn-lane widening
     // grass + a few trees
     c.fillStyle = '#7ccf6b'; c.fillRect(0, 0, W, W);
     c.font = '30px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
     [[60, 60, '🌳'], [520, 120, '🌳'], [80, 540, '🌲'], [540, 500, '🏠'], [180, 470, '🌼'], [560, 60, '🌸']].forEach(t => c.fillText(t[2], t[0], t[1]));
     // roads
     c.fillStyle = '#5c5f63';
-    c.fillRect(260, 0, 80, W);                 // N-S
-    c.fillRect(0, 260, W, 80);                 // E-W
-    if (lane) { c.beginPath(); c.moveTo(340, 0); c.lineTo(380, 0); c.lineTo(380, 372); c.lineTo(340, 452); c.closePath(); c.fill(); }
+    c.fillRect(box.x1, 0, innerX2 - box.x1, W);                 // N-S
+    c.fillRect(0, box.y1, W, box.y2 - box.y1);                  // E-W
+    if (lane) { c.beginPath(); c.moveTo(innerX2, 0); c.lineTo(box.x2, 0); c.lineTo(box.x2, 372); c.lineTo(innerX2, 452); c.closePath(); c.fill(); }
     // tint each road in its axis colour (the crossing itself stays grey)
     tintRoads(c, s, 'ns', 0.2); tintRoads(c, s, 'ew', 0.2);
     if (pulse.t > 0) tintRoads(c, s, pulse.axis, 0.45 * pulse.t);
     // edge lines
     c.strokeStyle = '#eee'; c.lineWidth = 2;
     c.beginPath();
-    c.moveTo(260, 0); c.lineTo(260, 258); c.moveTo(260, 342); c.lineTo(260, W);
-    c.moveTo(340, 452); c.lineTo(340, W);
-    if (lane) { c.moveTo(380, 0); c.lineTo(380, 258); c.moveTo(380, 342); c.lineTo(380, 372); c.lineTo(340, 452); }
-    else { c.moveTo(340, 0); c.lineTo(340, 258); c.moveTo(340, 342); c.lineTo(340, W); }
-    c.moveTo(0, 260); c.lineTo(258, 260); c.moveTo(box.x2 + 2, 260); c.lineTo(W, 260);
-    c.moveTo(0, 340); c.lineTo(258, 340); c.moveTo(box.x2 + 2, 340); c.lineTo(W, 340);
+    c.moveTo(box.x1, 0); c.lineTo(box.x1, box.y1 - 2); c.moveTo(box.x1, box.y2 + 2); c.lineTo(box.x1, W);
+    c.moveTo(innerX2, 452); c.lineTo(innerX2, W);
+    if (lane) { c.moveTo(box.x2, 0); c.lineTo(box.x2, box.y1 - 2); c.moveTo(box.x2, box.y2 + 2); c.lineTo(box.x2, 372); c.lineTo(innerX2, 452); }
+    else { c.moveTo(innerX2, 0); c.lineTo(innerX2, box.y1 - 2); c.moveTo(innerX2, box.y2 + 2); c.lineTo(innerX2, W); }
+    c.moveTo(0, box.y1); c.lineTo(box.x1 - 2, box.y1); c.moveTo(box.x2 + 2, box.y1); c.lineTo(W, box.y1);
+    c.moveTo(0, box.y2); c.lineTo(box.x1 - 2, box.y2); c.moveTo(box.x2 + 2, box.y2); c.lineTo(W, box.y2);
     c.stroke();
     // centre lines (dashed)
     c.setLineDash([14, 12]); c.strokeStyle = '#ffd166'; c.lineWidth = 3;
     c.beginPath();
-    c.moveTo(300, 0); c.lineTo(300, 240); c.moveTo(300, 360); c.lineTo(300, W);
-    c.moveTo(0, 300); c.lineTo(240, 300); c.moveTo(box.x2 + 20, 300); c.lineTo(W, 300);
+    c.moveTo(300, 0); c.lineTo(300, box.y1 - 20); c.moveTo(300, box.y2 + 20); c.lineTo(300, W);
+    c.moveTo(0, 300); c.lineTo(box.x1 - 20, 300); c.moveTo(box.x2 + 20, 300); c.lineTo(W, 300);
     c.stroke();
-    if (lane) { c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.moveTo(340, 0); c.lineTo(340, 240); c.stroke(); }
+    if (lane) { c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.moveTo(innerX2, 0); c.lineTo(innerX2, box.y1 - 20); c.stroke(); }
     c.setLineDash([]);
     // stop lines
     c.strokeStyle = '#fff'; c.lineWidth = 5;
     c.beginPath();
-    c.moveTo(302, g.stop.S); c.lineTo(lane ? 378 : 338, g.stop.S);
-    c.moveTo(262, g.stop.N); c.lineTo(298, g.stop.N);
-    c.moveTo(g.stop.E, 262); c.lineTo(g.stop.E, 298);
-    c.moveTo(g.stop.W, 302); c.lineTo(g.stop.W, 338);
+    c.moveTo(302, g.stop.S); c.lineTo(lane ? box.x2 - 2 : innerX2 - 2, g.stop.S);
+    c.moveTo(box.x1 + 2, g.stop.N); c.lineTo(298, g.stop.N);
+    c.moveTo(g.stop.E, box.y1 + 2); c.lineTo(g.stop.E, 298);
+    c.moveTo(g.stop.W, 302); c.lineTo(g.stop.W, box.y2 - 2);
     c.stroke();
     // road arrows on the southbound approach
     c.strokeStyle = '#fff'; c.lineWidth = 4; c.lineCap = 'round'; c.lineJoin = 'round';
     if (lane) {
-      arrowStraight(c, 360, 150, 190);
-      arrowTurn(c, 320, 150);
+      arrowStraight(c, Ln.S1, 150, 190);
+      arrowTurn(c, Ln.S0, 150);
     } else {
-      arrowStraight(c, 320, 150, 190);
+      arrowStraight(c, Ln.S0, 150, 190);
     }
-    // crosswalk stripes
+    // crosswalk stripes: enough of them to span the road's actual width, so a wider
+    // crossing still gets a fully painted crosswalk instead of a partial one
     c.fillStyle = 'rgba(255,255,255,.8)';
-    for (let i = 0; i < 4; i++) {
-      c.fillRect(264 + i * 20, 232, 12, 16); c.fillRect(264 + i * 20, 352, 12, 16);
-      c.fillRect(232, 264 + i * 20, 16, 12); c.fillRect(box.x2 + 12, 264 + i * 20, 16, 12);
-    }
-    if (lane) for (let i = 4; i < 6; i++) c.fillRect(264 + i * 20, 232, 12, 16);
+    const nsFull = Math.round(((lane ? box.x2 : innerX2) - box.x1) / 20);   // north-side: widens with the turn lane
+    const nsBase = Math.round((innerX2 - box.x1) / 20);                    // south-side: never widens
+    for (let i = 0; i < nsFull; i++) c.fillRect(box.x1 + 4 + i * 20, box.y1 - 28, 12, 16);
+    for (let i = 0; i < nsBase; i++) c.fillRect(box.x1 + 4 + i * 20, box.y2 + 12, 12, 16);
+    const ewCount = Math.round((box.y2 - box.y1) / 20);
+    for (let i = 0; i < ewCount; i++) { c.fillRect(box.x1 - 28, box.y1 + 4 + i * 20, 16, 12); c.fillRect(box.x2 + 12, box.y1 + 4 + i * 20, 16, 12); }
   }
   function tintRoads(c, s, axis, alpha) {
     const box = s.geo.box, lane = s.cfg.turnLane;
+    const innerX2 = lane ? box.x2 - 40 : box.x2;
     c.fillStyle = `rgba(${AXIS[axis].rgb},${alpha})`;
     if (axis === 'ns') {
-      c.fillRect(260, 0, 80, 260); c.fillRect(260, 340, 80, W - 340);
-      if (lane) { c.beginPath(); c.moveTo(340, 0); c.lineTo(380, 0); c.lineTo(380, 260); c.lineTo(340, 260); c.closePath(); c.fill();
-                  c.beginPath(); c.moveTo(340, 340); c.lineTo(380, 340); c.lineTo(380, 372); c.lineTo(340, 452); c.closePath(); c.fill(); }
+      c.fillRect(box.x1, 0, innerX2 - box.x1, box.y1); c.fillRect(box.x1, box.y2, innerX2 - box.x1, W - box.y2);
+      if (lane) { c.beginPath(); c.moveTo(innerX2, 0); c.lineTo(box.x2, 0); c.lineTo(box.x2, box.y1); c.lineTo(innerX2, box.y1); c.closePath(); c.fill();
+                  c.beginPath(); c.moveTo(innerX2, box.y2); c.lineTo(box.x2, box.y2); c.lineTo(box.x2, 372); c.lineTo(innerX2, 452); c.closePath(); c.fill(); }
     } else {
-      c.fillRect(0, 260, 260, 80); c.fillRect(box.x2, 260, W - box.x2, 80);
+      c.fillRect(0, box.y1, box.x1, box.y2 - box.y1); c.fillRect(box.x2, box.y1, W - box.x2, box.y2 - box.y1);
     }
   }
   function arrowStraight(c, x, y1, y2) {
@@ -471,20 +480,20 @@
   }
 
   function drawLights(c, s) {
-    const L = s.lights, cfgS = s.cfg, box = s.geo.box, g = s.geo;
+    const L = s.lights, cfgS = s.cfg, box = s.geo.box, g = s.geo, Ln = g.lane;
     const bulbs = cfgS.yellow ? ['G', 'Y', 'R'] : ['G', 'R'];
     const h = 20, hS = cfgS.arrow ? 38 : 20;   // head heights (see drawLightHead)
     const gap = 16 + 6 + 3;                      // crosswalk + a little space + frame, from the stop line to the near edge
     // Each head hangs from an arm on the pole at the far-left corner (driver's left) of the crossing
     // and sits over the far side of the road, right above the lanes of the traffic it controls.
-    // southbound traffic (from the top, lanes x 300..340): head below the crossing, facing up
-    drawLightHead(c, 316, g.stop.N + gap + hS / 2, Math.PI / 2, box.x2 + 2, box.y2 + 2, bulbs, L.ns, cfgS.arrow, L.arrow, L.arrowYellow, 'ns');
-    // northbound traffic (from the bottom, lane x 260..300): head above the crossing, facing down
-    drawLightHead(c, 284, g.stop.S - gap - h / 2, -Math.PI / 2, box.x1 - 2, box.y1 - 2, bulbs, L.ns, false, false, false, 'ns');
-    // eastbound traffic (from the left, lane y 260..300): head right of the crossing, facing left
-    drawLightHead(c, g.stop.W + gap + h / 2, 284, 0, box.x2 + 2, box.y1 - 2, bulbs, L.ew, false, false, false, 'ew');
-    // westbound traffic (from the right, lane y 300..340): head left of the crossing, facing right
-    drawLightHead(c, g.stop.E - gap - h / 2, 316, Math.PI, box.x1 - 2, box.y2 + 2, bulbs, L.ew, false, false, false, 'ew');
+    // southbound traffic: head below the crossing, facing up
+    drawLightHead(c, Ln.S0 - 4, g.stop.N + gap + hS / 2, Math.PI / 2, box.x2 + 2, box.y2 + 2, bulbs, L.ns, cfgS.arrow, L.arrow, L.arrowYellow, 'ns');
+    // northbound traffic: head above the crossing, facing down
+    drawLightHead(c, Ln.N + 4, g.stop.S - gap - h / 2, -Math.PI / 2, box.x1 - 2, box.y1 - 2, bulbs, L.ns, false, false, false, 'ns');
+    // eastbound traffic: head right of the crossing, facing left
+    drawLightHead(c, g.stop.W + gap + h / 2, Ln.E + 4, 0, box.x2 + 2, box.y1 - 2, bulbs, L.ew, false, false, false, 'ew');
+    // westbound traffic: head left of the crossing, facing right
+    drawLightHead(c, g.stop.E - gap - h / 2, Ln.W - 4, Math.PI, box.x1 - 2, box.y2 + 2, bulbs, L.ew, false, false, false, 'ew');
   }
 
   function glow(c, x, y, color, rad) {

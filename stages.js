@@ -17,12 +17,12 @@
       goals: ['ns', 'ew'],
     },
     {
-      // 2. 黄色があると、ぶつからない
-      id: 2, icon: '🟡', mode: 'auto', roundLen: 15,
-      toggles: ['yellow'],
-      init: { yellow: false, arrow: false, turnLane: false, green: 5, greenEW: 5, yellowDur: 3, allRed: 0 },
-      spawns: [flow('S0s', 2.4, 0.05), flow('N', 2.4, 1.25), flow('E', 3, 1.0), flow('W', 3, 2.5)],
-      goals: ['safe'],
+      // 2. 黄色は「止まれの前ぶれ」。赤・青・黄を自分で切り替えて、縦横どちらも安全に通そう
+      id: 2, icon: '🟡', mode: 'manual', roundLen: 20,
+      toggles: ['nsLight', 'ewLight'],
+      init: { yellow: true, arrow: false, turnLane: false, wide: true, lights: { ns: 'R', ew: 'R' } },
+      spawns: [flow('S0s', 2.2, 0.53), flow('N', 2.2, 1.3), flow('E', 2.2, 0.2), flow('W', 2.2, 1.63)],
+      goals: ['ns', 'ew'],
     },
     {
       // 3. 右折信号がないと、右折の車が曲がれなくて悲しい

@@ -17,9 +17,15 @@
   const VMAX = 120, ACC = 150, DEC = 150, CAR_LEN = 30, CAR_WID = 20, GAP = 10;
   const PHASES = ['nsG', 'nsY', 'nsA', 'nsAY', 'all1', 'ewG', 'ewY', 'all2'];
 
-  function geometry(turnLane) {
-    const x1 = 260, x2 = turnLane ? 380 : 340, y1 = 260, y2 = 340;
-    return { box: { x1, x2, y1, y2 }, stop: { S: y1 - 8, N: y2 + 8, E: x1 - 8, W: x2 + 8 } };
+  // `wide` doubles the crossing (used by the yellow-signal stage, so cars take longer to
+  // clear it - making the case for a yellow "clear the box first" phase before the cross
+  // street gets a green light). Every lane position is derived from the box edges with a
+  // fixed 20px margin, so this same formula reduces to the original numbers when !wide.
+  function geometry(turnLane, wide) {
+    const x1 = wide ? 220 : 260, x2 = wide ? 380 : (turnLane ? 380 : 340), y1 = wide ? 220 : 260, y2 = wide ? 380 : 340;
+    const innerX2 = turnLane ? x2 - 40 : x2;   // NS road edge before any turn-lane widening
+    const lane = { N: x1 + 20, S0: innerX2 - 20, S1: x2 - 20, E: y1 + 20, W: y2 - 20 };
+    return { box: { x1, x2, y1, y2 }, stop: { S: y1 - 8, N: y2 + 8, E: x1 - 8, W: x2 + 8 }, lane };
   }
 
   function bezier(p0, p1, p2, n) {
@@ -53,29 +59,29 @@
     return { x: a[0] + (b[0] - a[0]) * t, y: a[1] + (b[1] - a[1]) * t, angle: Math.atan2(b[1] - a[1], b[0] - a[0]) };
   }
 
-  function laneDefs(turnLane) {
-    const g = geometry(turnLane);
+  function laneDefs(turnLane, wide) {
+    const g = geometry(turnLane, wide), Ln = g.lane;
     const defs = {};
     defs.S0s = { key: 'S0', approach: 'S', kind: 'straight',
-      path: buildPath([[320, -60], [320, 660]]), stopS: g.stop.S + 60 };
+      path: buildPath([[Ln.S0, -60], [Ln.S0, 660]]), stopS: g.stop.S + 60 };
     defs.S1s = { key: 'S1', approach: 'S', kind: 'straight',
-      path: buildPath([[360, -60], [360, 370], [320, 450], [320, 660]]), stopS: g.stop.S + 60 };
-    const turnPts = [[320, -60], [320, g.stop.S]].concat(bezier([320, g.stop.S], [322, 326], [246, 320], 10), [[-60, 320]]);
+      path: buildPath([[Ln.S1, -60], [Ln.S1, 370], [Ln.S0, 450], [Ln.S0, 660]]), stopS: g.stop.S + 60 };
+    const turnPts = [[Ln.S0, -60], [Ln.S0, g.stop.S]].concat(bezier([Ln.S0, g.stop.S], [Ln.S0 + 2, Ln.W + 6], [g.box.x1 - 14, Ln.W], 10), [[-60, Ln.W]]);
     defs.S0t = { key: 'S0', approach: 'S', kind: 'turn',
       path: buildPath(turnPts), stopS: g.stop.S + 60, waitS: g.stop.S + 60 + 30 };
     defs.N = { key: 'N', approach: 'N', kind: 'straight',
-      path: buildPath([[280, 660], [280, -60]]), stopS: 660 - g.stop.N };
+      path: buildPath([[Ln.N, 660], [Ln.N, -60]]), stopS: 660 - g.stop.N };
     defs.E = { key: 'E', approach: 'E', kind: 'straight',
-      path: buildPath([[-60, 280], [660, 280]]), stopS: g.stop.E + 60 };
+      path: buildPath([[-60, Ln.E], [660, Ln.E]]), stopS: g.stop.E + 60 };
     defs.W = { key: 'W', approach: 'W', kind: 'straight',
-      path: buildPath([[660, 320], [-60, 320]]), stopS: 660 - g.stop.W };
+      path: buildPath([[660, Ln.W], [-60, Ln.W]]), stopS: 660 - g.stop.W };
     return defs;
   }
 
   function create(opts) {
     const cfg = Object.assign({
       mode: 'auto',            // 'auto' | 'manual'
-      yellow: true, arrow: false, turnLane: false,
+      yellow: true, arrow: false, turnLane: false, wide: false,
       lights: { ns: 'R', ew: 'R' },   // manual mode
       green: 5, greenEW: 5, yellowDur: 2.5, arrowDur: 3, allRed: 1,
       spawns: [],              // {lane, every, offset, until}
@@ -87,7 +93,7 @@
       phase: 'nsG', phaseT: 0,
       lights: { ns: 'R', ew: 'R', arrow: false, arrowYellow: false },
       stats: { passed: { S: 0, N: 0, E: 0, W: 0, turn: 0, straightS: 0 }, crashes: 0, sadTurn: 0, angry: 0, maxTurnWait: 0, stuck: 0 },
-      geo: geometry(cfg.turnLane), lanes: laneDefs(cfg.turnLane),
+      geo: geometry(cfg.turnLane, cfg.wide), lanes: laneDefs(cfg.turnLane, cfg.wide),
     };
     cfg.spawns.forEach(sp => { sp._next = sp.offset || 0; sp._count = 0; });
 
@@ -190,8 +196,8 @@
           else if (dLine <= 0) car.committed = true;
         } else {
           const canStop = car.v * car.v / (2 * cfg.decel) <= dLine + 2;
-          if (light === 'Y' && !canStop) car.committed = true;   // too close: go through on yellow
-          else obstacle = Math.min(obstacle, dLine);             // brake (even past the line: stuck!)
+          if (!canStop) car.committed = true;                    // too close to stop: finish crossing rather than stall in the box
+          else obstacle = Math.min(obstacle, dLine);             // brake to a stop at the line
         }
       }
 
