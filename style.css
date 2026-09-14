@@ -24,10 +24,6 @@ body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Color Em
 #view, #fx { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #fx { pointer-events: none; }
 
-#timer { position: absolute; left: 12px; right: 12px; top: 8px; height: 10px; border-radius: 6px; background: rgba(255,255,255,.55); overflow: hidden; display: none; }
-#timer-fill { height: 100%; width: 100%; background: #ff9f1c; border-radius: 6px; }
-#stage-wrap.running #timer { display: block; }
-
 #overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: rgba(255,255,255,.55); backdrop-filter: blur(2px); z-index: 5; }
 #overlay.hidden { display: none; }
 #result-emoji { font-size: 120px; line-height: 1; animation: pop .5s cubic-bezier(.2,1.6,.4,1); filter: drop-shadow(0 6px 10px rgba(0,0,0,.2)); }
@@ -42,6 +38,9 @@ body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Color Em
 .big-btn.play { background: #4cbf5e; box-shadow: 0 6px 0 #33994a; }
 .big-btn.play:active { box-shadow: 0 2px 0 #33994a; }
 .big-btn.play.hidden { visibility: hidden; }
+.big-btn.finish { background: #4a4a4a; box-shadow: 0 6px 0 #2b2b2b; font-size: 34px; }
+.big-btn.finish:active { box-shadow: 0 2px 0 #2b2b2b; }
+.big-btn.finish.hidden { visibility: hidden; }
 
 .toggle { position: relative; width: 84px; height: 84px; border-radius: 22px; border: 4px solid #d9d2c3; background: #fff; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center; transition: transform .1s, border-color .2s; }
 .toggle:active { transform: scale(.94); }

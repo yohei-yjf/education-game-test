@@ -57,7 +57,7 @@
   let stageIdx = 0, stage = STAGES[0];
   let cfg = null;          // current toggle state for the stage
   let sim = null;
-  let running = false, roundT = 0;
+  let running = false;
   let goalsDone = {};
   let fxList = [];         // particles / bursts
   let shakeT = 0;
@@ -221,6 +221,7 @@
     renderStages(); renderGoals(); renderToggles();
     $('overlay').classList.add('hidden');
     $('play').classList.remove('hidden');
+    $('finish').classList.add('hidden');
     wrap.classList.remove('running');
   }
 
@@ -229,9 +230,10 @@
     ac();
     SFX.click(); clearHints();
     sim = buildSim(true);
-    running = true; roundT = 0; fxList = [];
+    running = true; fxList = [];
     wrap.classList.add('running');
     $('play').classList.add('hidden');
+    $('finish').classList.remove('hidden');
     $('overlay').classList.add('hidden');
     refreshToggles();
   }
@@ -239,6 +241,7 @@
   function endRound(crashed) {
     running = false;
     wrap.classList.remove('running');
+    $('finish').classList.add('hidden');
     refreshToggles();
     const st = sim.stats, p = st.passed;
     let emoji = '⭐', sub = '', ok = false, cleared = false, hintKind = null, sound = 'star';
@@ -304,6 +307,7 @@
   function crashed_delay(e) { return e === '💥' ? 900 : 400; }
   $('next').addEventListener('click', () => { SFX.click(); if (nextAction) nextAction(); });
   $('play').addEventListener('click', startRound);
+  $('finish').addEventListener('click', () => { if (running && sim && !sim.crashed) endRound(false); });
   $('sound').addEventListener('click', () => { muted = !muted; $('sound').textContent = muted ? '🔇' : '🔊'; if (!muted) SFX.click(); });
 
   // ---------- effects ----------
@@ -576,15 +580,12 @@
       while (acc >= step) {
         acc -= step;
         const events = sim.step(step);
-        roundT += step;
         for (const e of events) {
           if (e.type === 'crash') { burst(e.x, e.y, '💥'); shakeT = 0.5; wrap.classList.add('shake'); SFX.crash(); setTimeout(() => wrap.classList.remove('shake'), 600); }
           if (e.type === 'passed' && e.car.mood === 'happy') sparkle(e.car.cx, e.car.cy);
         }
-        if (sim.crashed) { running = false; setTimeout(() => endRound(true), 700); break; }
-        if (roundT >= stage.roundLen) { endRound(false); break; }
+        if (sim.crashed) { running = false; $('finish').classList.add('hidden'); setTimeout(() => endRound(true), 700); break; }
       }
-      $('timer-fill').style.width = Math.max(0, 100 - roundT / stage.roundLen * 100) + '%';
     }
     if (shakeT > 0) shakeT -= dt;
     if (pulse.t > 0) pulse.t = Math.max(0, pulse.t - dt * 1.2);
